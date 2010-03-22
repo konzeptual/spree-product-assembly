@@ -14,15 +14,30 @@ class ProductAssemblyExtension < Spree::Extension
 
   def activate
 
+    ProductsHelper.module_eval do
+      def product_price(product_or_variant, options={})
+        if !product_or_variant.individual_sale 
+          ''
+        else
+          options.assert_valid_keys(:format_as_currency, :show_vat_text)
+          options.reverse_merge! :format_as_currency => true, :show_vat_text => Spree::Config[:show_price_inc_vat]
+
+          amount = product_or_variant.price
+          amount += Calculator::Vat.calculate_tax_on(product_or_variant) if Spree::Config[:show_price_inc_vat]
+          options.delete(:format_as_currency) ? format_price(amount, options) : ("%0.2f" % amount).to_f
+        end
+      end
+    end
+
     Product.class_eval do
 
       has_and_belongs_to_many  :assemblies, :class_name => "Product",
-            :join_table => "assemblies_parts",
-            :foreign_key => "part_id", :association_foreign_key => "assembly_id"
+      :join_table => "assemblies_parts",
+      :foreign_key => "part_id", :association_foreign_key => "assembly_id"
 
       has_and_belongs_to_many  :parts, :class_name => "Variant",
-            :join_table => "assemblies_parts",
-            :foreign_key => "assembly_id", :association_foreign_key => "part_id"
+      :join_table => "assemblies_parts",
+      :foreign_key => "assembly_id", :association_foreign_key => "part_id"
 
 
       named_scope :individual_saled, {
@@ -45,121 +60,121 @@ class ProductAssemblyExtension < Spree::Extension
       end
 
       alias_method :orig_on_hand=, :on_hand=
-      def on_hand=(new_level)
-        self.orig_on_hand=(new_level) unless self.assembly?
-      end
-
-      alias_method :orig_has_stock?, :has_stock?
-      def has_stock?
-        if self.assembly?
-          !parts.detect{|v| self.count_of(v) > v.on_hand}
-        else
-          self.orig_has_stock?
+        def on_hand=(new_level)
+          self.orig_on_hand=(new_level) unless self.assembly?
         end
-      end
 
-      def add_part(variant, count = 1)
-        ap = AssembliesPart.get(self.id, variant.id)
-        unless ap.nil?
-          ap.count += count
-          ap.save
-        else
-          self.parts << variant
-          set_part_count(variant, count) if count > 1
-        end
-      end
-
-      def remove_part(variant)
-        ap = AssembliesPart.get(self.id, variant.id)
-        unless ap.nil?
-          ap.count -= 1
-          if ap.count > 0
-            ap.save
+        alias_method :orig_has_stock?, :has_stock?
+        def has_stock?
+          if self.assembly?
+            !parts.detect{|v| self.count_of(v) > v.on_hand}
           else
-            ap.destroy
+            self.orig_has_stock?
           end
         end
-      end
 
-      def set_part_count(variant, count)
-        ap = AssembliesPart.get(self.id, variant.id)
-        unless ap.nil?
-          if count > 0
-            ap.count = count
+        def add_part(variant, count = 1)
+          ap = AssembliesPart.get(self.id, variant.id)
+          unless ap.nil?
+            ap.count += count
             ap.save
           else
-            ap.destroy
+            self.parts << variant
+            set_part_count(variant, count) if count > 1
           end
         end
+
+        def remove_part(variant)
+          ap = AssembliesPart.get(self.id, variant.id)
+          unless ap.nil?
+            ap.count -= 1
+            if ap.count > 0
+              ap.save
+            else
+              ap.destroy
+            end
+          end
+        end
+
+        def set_part_count(variant, count)
+          ap = AssembliesPart.get(self.id, variant.id)
+          unless ap.nil?
+            if count > 0
+              ap.count = count
+              ap.save
+            else
+              ap.destroy
+            end
+          end
+        end
+
+        def assembly?
+          parts.present?
+        end
+
+        def part?
+          assemblies.present?
+        end
+
+        def count_of(variant)
+          ap = AssembliesPart.get(self.id, variant.id)
+          ap ? ap.count : 0
+        end
+
       end
 
-      def assembly?
-        parts.present?
-      end
+      InventoryUnit.class_eval do
+        def self.sell_units(order)
+          out_of_stock_items = []
+          order.line_items.each do |line_item|
+            variant = line_item.variant
+            quantity = line_item.quantity
+            product = variant.product
 
-      def part?
-        assemblies.present?
-      end
+            if product.assembly?
+              product.parts.each do |v|
+                out_of_stock_items += self.mark_units_as_sold(order, v, quantity * product.count_of(v))
+              end
+            else
+              out_of_stock_items += self.mark_units_as_sold(order, variant, quantity)
+            end
+          end
+          out_of_stock_items.flatten
+        end
 
-      def count_of(variant)
-        ap = AssembliesPart.get(self.id, variant.id)
-        ap ? ap.count : 0
+        private
+
+        def self.mark_units_as_sold(order, variant, quantity)
+          out_of_stock_items = []
+          #Force reload in case of ReadOnly and too ensure correct onhand values
+          variant = Variant.find(variant.id)
+
+          # mark all of these units as sold and associate them with this order
+          remaining_quantity = variant.count_on_hand - quantity
+
+          if (remaining_quantity >= 0)
+            quantity.times do
+              order.inventory_units.create(:variant => variant, :state => "sold")
+            end
+            variant.update_attribute(:count_on_hand, remaining_quantity)
+          else
+            (quantity + remaining_quantity).times do
+              order.inventory_units.create(:variant => variant, :state => "sold")
+            end
+            if Spree::Config[:allow_backorders]
+              (-remaining_quantity).times do
+                order.inventory_units.create(:variant => variant, :state => "backordered")
+              end
+            else
+              line_item.update_attribute(:quantity, quantity + remaining_quantity)
+              out_of_stock_items << {:line_item => line_item, :count => -remaining_quantity}
+            end     
+            variant.update_attribute(:count_on_hand, 0)
+          end
+          out_of_stock_items
+        end
+
       end
 
     end
-
-    InventoryUnit.class_eval do
-      def self.sell_units(order)
-        out_of_stock_items = []
-        order.line_items.each do |line_item|
-          variant = line_item.variant
-          quantity = line_item.quantity
-          product = variant.product
-
-          if product.assembly?
-            product.parts.each do |v|
-              out_of_stock_items += self.mark_units_as_sold(order, v, quantity * product.count_of(v))
-            end
-          else
-            out_of_stock_items += self.mark_units_as_sold(order, variant, quantity)
-          end
-        end
-        out_of_stock_items.flatten
-      end
-
-      private
-
-      def self.mark_units_as_sold(order, variant, quantity)
-        out_of_stock_items = []
-        #Force reload in case of ReadOnly and too ensure correct onhand values
-        variant = Variant.find(variant.id)
-
-        # mark all of these units as sold and associate them with this order
-        remaining_quantity = variant.count_on_hand - quantity
-
-        if (remaining_quantity >= 0)
-          quantity.times do
-            order.inventory_units.create(:variant => variant, :state => "sold")
-          end
-          variant.update_attribute(:count_on_hand, remaining_quantity)
-        else
-          (quantity + remaining_quantity).times do
-            order.inventory_units.create(:variant => variant, :state => "sold")
-          end
-          if Spree::Config[:allow_backorders]
-            (-remaining_quantity).times do
-              order.inventory_units.create(:variant => variant, :state => "backordered")
-            end
-          else
-            line_item.update_attribute(:quantity, quantity + remaining_quantity)
-            out_of_stock_items << {:line_item => line_item, :count => -remaining_quantity}
-          end     
-          variant.update_attribute(:count_on_hand, 0)
-        end
-        out_of_stock_items
-      end
-
-    end
-
   end
-end
