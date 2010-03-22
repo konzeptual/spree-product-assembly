@@ -1,0 +1,8 @@
+<div id="cart-form">
+  <% if @product.part? && !@product.individual_sale -%>
+    <%= render(:partial => "product_assemblies" ) %>  
+  <% else -%>
+    <%= render 'cart_form' %>
+  <% end -%>
+</div>
+

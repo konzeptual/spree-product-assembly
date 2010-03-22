@@ -30,7 +30,7 @@ class ProductAssemblyExtension < Spree::Extension
       }
 
       named_scope :active, lambda { |*args|
-        not_deleted.individual_saled.available(args.first).scope(:find)
+        not_deleted.available(args.first).scope(:find)
       }
 
 
