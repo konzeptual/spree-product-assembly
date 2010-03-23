@@ -16,7 +16,7 @@ class ProductAssemblyExtension < Spree::Extension
 
     ProductsHelper.module_eval do
       def product_price(product_or_variant, options={})
-        if !product_or_variant.individual_sale 
+        if (product_or_variant.respond_to? 'individual_sale' && !product_or_variant.individual_sale)
           ''
         else
           options.assert_valid_keys(:format_as_currency, :show_vat_text)
