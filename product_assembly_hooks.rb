@@ -7,4 +7,7 @@ class ProductAssemblyHooks < Spree::ThemeSupport::HookListener
   insert_after :admin_product_form_right , "admin/products/product_assembly_fields"
   
   replace :cart_form, 'products/cart_form_or_product_assemblies'
+
+  insert_after :product_properties, 'products/product_parts'
+
 end

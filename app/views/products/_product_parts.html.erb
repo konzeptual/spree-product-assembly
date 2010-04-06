@@ -1,0 +1,7 @@
+<% unless @product.parts.blank? -%>
+  ______________________________________<br />
+  <%= I18n::t('this_product_consists_of_the_following_parts') %>
+
+  <%= render "shared/products", :products => @product.parts.collect {|variant| variant.product}  %>
+<% end -%>
+
