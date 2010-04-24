@@ -1,5 +1,5 @@
 <div id="cart-form">
-  <% if @product.individual_sale -%>
+  <% if @product.individual_sale and @product.price > 0 -%>
     <%= render 'cart_form' %>
   <% end -%>
   <% if @product.part? -%>
