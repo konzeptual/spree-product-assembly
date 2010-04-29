@@ -116,8 +116,15 @@ class ProductAssemblyExtension < Spree::Extension
         end
 
         def part?
+          # TODO
           # we should check for other variants as well...
           master.assemblies.present?
+        end
+
+        def assemblies
+          # TODO
+          # we should check for other variants as well...
+          master.assemblies
         end
 
         def count_of(variant)
