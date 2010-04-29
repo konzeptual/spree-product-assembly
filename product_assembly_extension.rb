@@ -29,11 +29,15 @@ class ProductAssemblyExtension < Spree::Extension
       end
     end
 
-    Product.class_eval do
+    Variant.class_eval do
 
       has_and_belongs_to_many  :assemblies, :class_name => "Product",
       :join_table => "assemblies_parts",
       :foreign_key => "part_id", :association_foreign_key => "assembly_id"
+
+    end
+
+    Product.class_eval do
 
       has_and_belongs_to_many  :parts, :class_name => "Variant",
       :join_table => "assemblies_parts",
@@ -47,7 +51,6 @@ class ProductAssemblyExtension < Spree::Extension
       named_scope :active, lambda { |*args|
         not_deleted.available(args.first).scope(:find)
       }
-
 
       alias_method :orig_on_hand, :on_hand
       # returns the number of inventory units "on_hand" for this product
@@ -113,7 +116,8 @@ class ProductAssemblyExtension < Spree::Extension
         end
 
         def part?
-          assemblies.present?
+          # we should check for other variants as well...
+          master.assemblies.present?
         end
 
         def count_of(variant)
