@@ -8,6 +8,6 @@ class ProductAssemblyHooks < Spree::ThemeSupport::HookListener
   
   replace :cart_form, 'products/cart_form_or_product_assemblies'
 
-  insert_after :product_properties, 'products/product_parts'
+  insert_after :product_description, 'products/product_parts'
 
 end
